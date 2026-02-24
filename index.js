@@ -21,9 +21,10 @@ if (!TOKEN || !GUILD_ID) {
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.GuildMessages
+    GatewayIntentBits.GuildMembers, // 🔹 חובה אם אתה רוצה fetch של משתתפים
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.DirectMessages, // 🔹 חובה ל-DM
+    GatewayIntentBits.MessageContent // 🔹 חובה לקרוא תוכן הודעות
   ],
   partials: ['CHANNEL'] // דרוש ל-DM
 });
