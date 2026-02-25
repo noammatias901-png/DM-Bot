@@ -7,11 +7,12 @@ app.get('/', (req, res) => res.send('DM Bot is running!'));
 app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
 
 // ===== Discord =====
-const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Partials } = require('discord.js');
 require('dotenv').config();
 
 const TOKEN = process.env.TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
+const LOG_CHANNEL_NAME = "🤖-dmbot-logs";
 
 if (!TOKEN || !GUILD_ID) {
   console.error("❌ חסר TOKEN או GUILD_ID ב-ENV");
@@ -21,15 +22,19 @@ if (!TOKEN || !GUILD_ID) {
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers, // 🔹 חובה אם אתה רוצה fetch של משתתפים
+    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.DirectMessages, // 🔹 חובה ל-DM
-    GatewayIntentBits.MessageContent // 🔹 חובה לקרוא תוכן הודעות
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.MessageContent
   ],
-  partials: ['CHANNEL'] // דרוש ל-DM
+  partials: [
+    Partials.Channel,
+    Partials.GuildMember,
+    Partials.User
+  ]
 });
 
-// ===== פורמטים לפי רול =====
+// ===== פורמטים =====
 const FORMATS = {
   "crime family": `💌 פורמט בקשת רול משפחה:
 שם בדיסקורד:
@@ -39,26 +44,58 @@ const FORMATS = {
 הוכחה:
 שם של מי שהכניס אותך:`,
 
-  "Solo Crime": `💌 פורמט בקשת רול סולו קריים:
+  "solo crime": `💌 פורמט בקשת רול סולו קריים:
 שם בדיסקורד:
 שם בעיר:
 הוכחה:
 שם של הבוחן:`
 };
 
-// ===== פונקציה לשליחת פורמט DM =====
-async function sendDMFormat(member, roleName) {
-  // Crime Permit לא שולח DM
-  if (roleName === "Crime Permit") return;
+// ===== פונקציית לוג =====
+async function sendLog(messageText) {
+  try {
+    const guild = await client.guilds.fetch(GUILD_ID);
+    const logChannel = guild.channels.cache.find(
+      c => c.name === LOG_CHANNEL_NAME
+    );
+
+    if (!logChannel) {
+      console.log("❌ לא נמצא חדר לוגים");
+      return;
+    }
+
+    await logChannel.send(messageText);
+  } catch (err) {
+    console.error("❌ שגיאה בשליחת לוג:", err);
+  }
+}
+
+// ===== שליחת DM =====
+async function sendDMFormat(member, roleNameRaw) {
+
+  const roleName = roleNameRaw.toLowerCase();
+
+  if (roleName === "crime permit") return;
 
   const format = FORMATS[roleName];
-  if (!format) return; // אין פורמט לרול הזה
+
+  if (!format) {
+    await sendLog(`⚠️ אין פורמט לרול: ${roleNameRaw}`);
+    return;
+  }
 
   try {
-    await member.send(format);
-    console.log(`✅ נשלח פורמט ל-${member.user.tag} עבור ${roleName}`);
+    await member.send({ content: format });
+
+    await sendLog(
+      `✅ DM נשלח ל ${member.user.tag}\nרול: ${roleNameRaw}`
+    );
+
   } catch (err) {
-    console.error(`❌ לא ניתן לשלוח DM ל-${member.user.tag}:`, err);
+
+    await sendLog(
+      `❌ נכשל DM ל ${member.user.tag}\nרול: ${roleNameRaw}\nסיבה: DM חסום או משתמש סגר הודעות פרטיות`
+    );
   }
 }
 
@@ -67,26 +104,37 @@ client.once('ready', () => {
   console.log(`✅ DM Bot Logged in as ${client.user.tag}`);
 });
 
-// ===== האזנה להודעות מהבוט הראשי =====
-// הפורמט: "FORMAT <RoleName> @User"
+// ===== האזנה להודעות =====
 client.on('messageCreate', async (message) => {
+
   if (message.author.bot) return;
+  if (!message.content.toUpperCase().startsWith("FORMAT")) return;
 
-  if (message.content.startsWith("FORMAT")) {
-    const args = message.content.split(" ");
-    const roleName = args[1]; // לדוגמה "Solo Crime" או "crime family" או "Crime Permit"
-    const userId = args[2]?.replace(/<@!?(\d+)>/, "$1"); // מחלץ את ID של המשתמש
+  const args = message.content.split(" ");
+  if (args.length < 3) return;
 
-    if (!roleName || !userId) return;
+  const roleName = args.slice(1, args.length - 1).join(" ");
+  const userId = args[args.length - 1].replace(/<@!?(\d+)>/, "$1");
 
-    try {
-      const guild = await client.guilds.fetch(GUILD_ID);
-      const member = await guild.members.fetch(userId);
-      await sendDMFormat(member, roleName);
-    } catch (err) {
-      console.error("❌ שגיאה בשליחת פורמט:", err);
-    }
+  if (!roleName || !userId) return;
+
+  try {
+    const guild = await client.guilds.fetch(GUILD_ID);
+    const member = await guild.members.fetch(userId);
+
+    await sendLog(
+      `📥 התקבלה בקשת FORMAT\nמשתמש: ${member.user.tag}\nרול: ${roleName}`
+    );
+
+    await sendDMFormat(member, roleName);
+
+  } catch (err) {
+    console.error("❌ שגיאה כללית:", err);
+    await sendLog("❌ שגיאה כללית בשליחת FORMAT (בדוק קונסול)");
   }
 });
 
-client.login(TOKEN);
+// ===== Login =====
+client.login(TOKEN)
+  .then(() => console.log('Bot logged in!'))
+  .catch(console.error);
