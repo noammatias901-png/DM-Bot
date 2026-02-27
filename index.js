@@ -2,24 +2,28 @@ const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.get('/', (req, res) => res.send('DM Bot is running!'));
-app.listen(PORT, () => console.log(`🌐 Server listening on port ${PORT}`));
+app.get('/', (req, res) => res.send('DM Bot Running'));
+app.listen(PORT);
 
-const { 
-  Client, 
-  GatewayIntentBits, 
-  Partials, 
-  EmbedBuilder 
+const {
+  Client,
+  GatewayIntentBits,
+  Partials,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
 } = require('discord.js');
 
 require('dotenv').config();
 
 const TOKEN = process.env.TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
+const SUBMIT_CHANNEL_ID = process.env.SUBMIT_CHANNEL_ID;
+const STAFF_ROLE_NAME = process.env.STAFF_ROLE_NAME;
 const LOG_CHANNEL_NAME = "🤖-dmbot-logs";
-const SUBMIT_CHANNEL_ID = process.env.SUBMIT_CHANNEL_ID; // 1475878693724491828
 
-const activeFormats = new Map(); // זוכר מי קיבל איזה פורמט
+const activeFormats = new Map(); // זוכר למי נשלח פורמט
 
 const client = new Client({
   intents: [
@@ -48,47 +52,24 @@ const FORMATS = {
 שם של הבוחן:`
 };
 
-async function sendLog(member, roleName, status) {
-  const guild = await client.guilds.fetch(GUILD_ID);
-  await guild.channels.fetch();
-
-  const logChannel = guild.channels.cache.find(
-    c => c.name === LOG_CHANNEL_NAME
-  );
-
-  if (!logChannel) return;
-
-  const embed = new EmbedBuilder()
-    .setTitle("📩 DM BOT LOG")
-    .addFields(
-      { name: "👤 משתמש", value: member.user.tag, inline: false },
-      { name: "🎭 רול שהתקבל", value: roleName, inline: false },
-      { name: "📨 סטטוס DM", value: status, inline: false }
-    )
-    .setColor(status === "נשלח פורמט" ? 0x00ff00 : 0xff0000)
-    .setTimestamp();
-
-  await logChannel.send({ embeds: [embed] });
-}
-
+// ===== שליחת פורמט =====
 async function sendDMFormat(member, roleNameRaw) {
+
   const roleName = roleNameRaw.toLowerCase();
   const format = FORMATS[roleName];
 
   if (!format) return;
 
+  // מונע שליחה כפולה
+  if (activeFormats.has(member.id)) return;
+
   try {
     await member.send(format);
-    activeFormats.set(member.id, roleName); // שומר איזה פורמט הוא קיבל
-    await sendLog(member, roleNameRaw, "נשלח פורמט");
-  } catch {
-    await sendLog(member, roleNameRaw, "נכשל - DM חסום");
+    activeFormats.set(member.id, roleName);
+  } catch (err) {
+    console.log("DM חסום");
   }
 }
-
-client.once('ready', () => {
-  console.log(`🤖 Logged in as ${client.user.tag}`);
-});
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
 
@@ -103,11 +84,11 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
   }
 });
 
-// ===== קבלת מילוי פורמט ב-DM =====
+// ===== קבלת מילוי פורמט =====
 client.on('messageCreate', async (message) => {
 
   if (message.author.bot) return;
-  if (message.guild) return; // רק DM
+  if (message.guild) return;
 
   const formatType = activeFormats.get(message.author.id);
   if (!formatType) return;
@@ -116,23 +97,81 @@ client.on('messageCreate', async (message) => {
   const submitChannel = await guild.channels.fetch(SUBMIT_CHANNEL_ID);
 
   const embed = new EmbedBuilder()
-    .setTitle("📥 בקשה חדשה")
+    .setTitle(`📥 בקשה חדשה – ${formatType}`)
     .addFields(
       { name: "👤 משתמש", value: message.author.tag },
-      { name: "📂 סוג בקשה", value: formatType },
       { name: "📝 תוכן הבקשה", value: message.content }
     )
     .setColor(0x3498db)
     .setTimestamp();
 
-  await submitChannel.send({ embeds: [embed] });
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`approve_${message.author.id}`)
+      .setLabel("אשר")
+      .setStyle(ButtonStyle.Success),
 
-  await message.author.send("✅ הבקשה נשלחה לצוות בהצלחה.");
+    new ButtonBuilder()
+      .setCustomId(`deny_${message.author.id}`)
+      .setLabel("דחה")
+      .setStyle(ButtonStyle.Danger)
+  );
 
-  activeFormats.delete(message.author.id); // מנקה זיכרון
+  await submitChannel.send({ embeds: [embed], components: [row] });
+
+  await message.author.send("📨 הבקשה נשלחה לצוות לבדיקה.");
+
+  activeFormats.delete(message.author.id);
 });
 
-process.on('unhandledRejection', console.error);
-process.on('uncaughtException', console.error);
+// ===== טיפול בכפתורים =====
+client.on('interactionCreate', async (interaction) => {
+
+  if (!interaction.isButton()) return;
+
+  const member = interaction.member;
+  if (!member.roles.cache.some(r => r.name === STAFF_ROLE_NAME)) {
+    return interaction.reply({ content: "❌ אין לך הרשאה.", ephemeral: true });
+  }
+
+  const [action, userId] = interaction.customId.split("_");
+
+  const user = await client.users.fetch(userId);
+
+  if (action === "approve") {
+
+    await user.send(
+      "✅ הבקשה שלך אושרה בהצלחה!\nהצוות מיד ימלא לך את הרולים המותאמים."
+    );
+
+    const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+      .setColor(0x00ff00)
+      .addFields({ name: "👮 אושר על ידי", value: interaction.user.tag });
+
+    await interaction.update({
+      embeds: [updatedEmbed],
+      components: []
+    });
+
+  }
+
+  if (action === "deny") {
+
+    await user.send(
+      "❌ הבקשה שלך נדחתה.\nבמידת הצורך ניתן להגיש בקשה חדשה."
+    );
+
+    const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+      .setColor(0xff0000)
+      .addFields({ name: "👮 נדחה על ידי", value: interaction.user.tag });
+
+    await interaction.update({
+      embeds: [updatedEmbed],
+      components: []
+    });
+
+  }
+
+});
 
 client.login(TOKEN);
