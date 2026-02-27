@@ -1,3 +1,4 @@
+// ===== Express =====
 const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -5,6 +6,7 @@ const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('DM Bot Running'));
 app.listen(PORT, () => console.log(`🌐 Server listening on port ${PORT}`));
 
+// ===== Discord =====
 const { 
   Client,
   GatewayIntentBits,
@@ -19,12 +21,12 @@ require('dotenv').config();
 
 const TOKEN = process.env.TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
-const SUBMIT_CHANNEL_ID = process.env.SUBMIT_CHANNEL_ID; // 1475878693724491828
-const STAFF_ROLE_NAME = process.env.STAFF_ROLE_NAME; // שם רול הצוות המדויק
+const SUBMIT_CHANNEL_ID = process.env.SUBMIT_CHANNEL_ID;
+const STAFF_ROLE_NAME = process.env.STAFF_ROLE_NAME;
 const LOG_CHANNEL_NAME = "🤖-dmbot-logs";
 
-const activeFormats = new Map();           // זוכר איזה פורמט למי נשלח
-const usersWithActiveFormat = new Set();   // מונע שליחה כפולה של DM
+const activeFormats = new Map();          // מי במצב מילוי פורמט
+const usersWithActiveFormat = new Set();  // מונע שליחה כפולה
 
 const client = new Client({
   intents: [
@@ -54,11 +56,11 @@ async function sendLog(member, roleName, status) {
     const embed = new EmbedBuilder()
       .setTitle("📩 DM BOT LOG")
       .addFields(
-        { name: "👤 משתמש", value: member.user.tag, inline: false },
+        { name: "👤 משתמש", value: `<@${member.id}>`, inline: false },
         { name: "🎭 רול שהתקבל", value: roleName, inline: false },
         { name: "📨 סטטוס DM", value: status, inline: false }
       )
-      .setColor(status === "נשלח פורמט Embed" ? 0x00ff00 : 0xff0000)
+      .setColor(status.includes("נשלח") ? 0x00ff00 : 0xff0000)
       .setTimestamp();
 
     await logChannel.send({ embeds: [embed] });
@@ -74,8 +76,7 @@ async function sendDMFormat(member, roleNameRaw) {
   const format = FORMATS[roleName];
   if (!format) return;
 
-  // מונע שליחה כפולה
-  if (usersWithActiveFormat.has(member.id)) return;
+  if (usersWithActiveFormat.has(member.id)) return; // מונע שליחה כפולה
 
   try {
     const embed = new EmbedBuilder()
@@ -92,7 +93,7 @@ async function sendDMFormat(member, roleNameRaw) {
     await sendLog(member, roleNameRaw, "נשלח פורמט Embed");
 
   } catch (err) {
-    await sendLog(member, roleNameRaw, "נכשל - DM חסום");
+    await sendLog(member, roleNameRaw, "❌ נכשל - DM חסום");
   }
 }
 
@@ -101,7 +102,7 @@ client.once('ready', () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
 });
 
-// ===== הוספת רול למשתמש =====
+// ===== הוספת רול אוטומטי למשתמש =====
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
   const addedRoles = newMember.roles.cache.filter(role => !oldMember.roles.cache.has(role.id));
   if (!addedRoles.size) return;
@@ -136,7 +137,6 @@ client.on('messageCreate', async (message) => {
       .setCustomId(`approve_${message.author.id}`)
       .setLabel("אשר")
       .setStyle(ButtonStyle.Success),
-
     new ButtonBuilder()
       .setCustomId(`deny_${message.author.id}`)
       .setLabel("דחה")
@@ -158,7 +158,7 @@ client.on('interactionCreate', async (interaction) => {
 
   const member = interaction.member;
 
-  // בטחון: member חייב להיות GuildMember
+  // רק מי שיש לו רול STAFF
   if (!member || !member.roles.cache.some(r => r.name.toLowerCase() === STAFF_ROLE_NAME.toLowerCase())) {
     return interaction.reply({ content: "❌ אין לך הרשאה.", ephemeral: true });
   }
@@ -167,6 +167,12 @@ client.on('interactionCreate', async (interaction) => {
   const user = await client.users.fetch(userId);
 
   if (action === "approve") {
+    // הוספת רול אוטומטי לפי סוג הפורמט
+    const guildMember = await interaction.guild.members.fetch(userId);
+    const roleName = activeFormats.get(userId) || "Crime Family"; // ברירת מחדל אם לא זמין
+    const role = interaction.guild.roles.cache.find(r => r.name === roleName);
+    if (role) await guildMember.roles.add(role);
+
     await user.send(
       "✅ הבקשה שלך אושרה בהצלחה!\nהצוות מיד ימלא לך את הרולים המותאמים."
     );
