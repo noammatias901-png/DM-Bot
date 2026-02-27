@@ -3,9 +3,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get('/', (req, res) => res.send('DM Bot Running'));
-app.listen(PORT);
+app.listen(PORT, () => console.log(`🌐 Server listening on port ${PORT}`));
 
-const {
+const { 
   Client,
   GatewayIntentBits,
   Partials,
@@ -19,11 +19,12 @@ require('dotenv').config();
 
 const TOKEN = process.env.TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
-const SUBMIT_CHANNEL_ID = process.env.SUBMIT_CHANNEL_ID;
-const STAFF_ROLE_NAME = process.env.STAFF_ROLE_NAME;
+const SUBMIT_CHANNEL_ID = process.env.SUBMIT_CHANNEL_ID; // 1475878693724491828
+const STAFF_ROLE_NAME = process.env.STAFF_ROLE_NAME; // שם רול הצוות המדויק
 const LOG_CHANNEL_NAME = "🤖-dmbot-logs";
 
-const activeFormats = new Map(); // זוכר למי נשלח פורמט
+const activeFormats = new Map();           // זוכר איזה פורמט למי נשלח
+const usersWithActiveFormat = new Set();   // מונע שליחה כפולה של DM
 
 const client = new Client({
   intents: [
@@ -36,6 +37,7 @@ const client = new Client({
   partials: [Partials.Channel]
 });
 
+// ===== פורמטים =====
 const FORMATS = {
   "crime family": `💌 פורמט בקשת רול משפחה:
 שם בדיסקורד:
@@ -52,31 +54,58 @@ const FORMATS = {
 שם של הבוחן:`
 };
 
-// ===== שליחת פורמט =====
-async function sendDMFormat(member, roleNameRaw) {
-
-  const roleName = roleNameRaw.toLowerCase();
-  const format = FORMATS[roleName];
-
-  if (!format) return;
-
-  // מונע שליחה כפולה
-  if (activeFormats.has(member.id)) return;
-
+// ===== פונקציית לוג =====
+async function sendLog(member, roleName, status) {
   try {
-    await member.send(format);
-    activeFormats.set(member.id, roleName);
+    const guild = await client.guilds.fetch(GUILD_ID);
+    await guild.channels.fetch();
+    const logChannel = guild.channels.cache.find(c => c.name === LOG_CHANNEL_NAME);
+    if (!logChannel) return;
+
+    const embed = new EmbedBuilder()
+      .setTitle("📩 DM BOT LOG")
+      .addFields(
+        { name: "👤 משתמש", value: member.user.tag, inline: false },
+        { name: "🎭 רול שהתקבל", value: roleName, inline: false },
+        { name: "📨 סטטוס DM", value: status, inline: false }
+      )
+      .setColor(status === "נשלח פורמט" ? 0x00ff00 : 0xff0000)
+      .setTimestamp();
+
+    await logChannel.send({ embeds: [embed] });
+
   } catch (err) {
-    console.log("DM חסום");
+    console.error("❌ שגיאה בשליחת לוג:", err);
   }
 }
 
+// ===== שליחת פורמט =====
+async function sendDMFormat(member, roleNameRaw) {
+  const roleName = roleNameRaw.toLowerCase();
+  const format = FORMATS[roleName];
+  if (!format) return;
+
+  // מונע שליחה כפולה
+  if (usersWithActiveFormat.has(member.id)) return;
+
+  try {
+    await member.send(format);
+    usersWithActiveFormat.add(member.id);
+    activeFormats.set(member.id, roleName);
+    await sendLog(member, roleNameRaw, "נשלח פורמט");
+  } catch (err) {
+    await sendLog(member, roleNameRaw, "נכשל - DM חסום");
+  }
+}
+
+// ===== Ready =====
+client.once('ready', () => {
+  console.log(`🤖 Logged in as ${client.user.tag}`);
+});
+
+// ===== הוספת רול =====
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
-
-  const addedRoles = newMember.roles.cache.filter(role =>
-    !oldMember.roles.cache.has(role.id)
-  );
-
+  const addedRoles = newMember.roles.cache.filter(role => !oldMember.roles.cache.has(role.id));
   if (!addedRoles.size) return;
 
   for (const role of addedRoles.values()) {
@@ -84,11 +113,10 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
   }
 });
 
-// ===== קבלת מילוי פורמט =====
+// ===== מילוי פורמט ב-DM =====
 client.on('messageCreate', async (message) => {
-
   if (message.author.bot) return;
-  if (message.guild) return;
+  if (message.guild) return; // רק DM
 
   const formatType = activeFormats.get(message.author.id);
   if (!formatType) return;
@@ -121,12 +149,13 @@ client.on('messageCreate', async (message) => {
 
   await message.author.send("📨 הבקשה נשלחה לצוות לבדיקה.");
 
+  // מנקה זיכרון למנוע שליחה כפולה בפעם הבאה
   activeFormats.delete(message.author.id);
+  usersWithActiveFormat.delete(message.author.id);
 });
 
 // ===== טיפול בכפתורים =====
 client.on('interactionCreate', async (interaction) => {
-
   if (!interaction.isButton()) return;
 
   const member = interaction.member;
@@ -135,11 +164,9 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   const [action, userId] = interaction.customId.split("_");
-
   const user = await client.users.fetch(userId);
 
   if (action === "approve") {
-
     await user.send(
       "✅ הבקשה שלך אושרה בהצלחה!\nהצוות מיד ימלא לך את הרולים המותאמים."
     );
@@ -148,15 +175,10 @@ client.on('interactionCreate', async (interaction) => {
       .setColor(0x00ff00)
       .addFields({ name: "👮 אושר על ידי", value: interaction.user.tag });
 
-    await interaction.update({
-      embeds: [updatedEmbed],
-      components: []
-    });
-
+    await interaction.update({ embeds: [updatedEmbed], components: [] });
   }
 
   if (action === "deny") {
-
     await user.send(
       "❌ הבקשה שלך נדחתה.\nבמידת הצורך ניתן להגיש בקשה חדשה."
     );
@@ -165,13 +187,12 @@ client.on('interactionCreate', async (interaction) => {
       .setColor(0xff0000)
       .addFields({ name: "👮 נדחה על ידי", value: interaction.user.tag });
 
-    await interaction.update({
-      embeds: [updatedEmbed],
-      components: []
-    });
-
+    await interaction.update({ embeds: [updatedEmbed], components: [] });
   }
-
 });
+
+// ===== טיפול בקריסות =====
+process.on('unhandledRejection', console.error);
+process.on('uncaughtException', console.error);
 
 client.login(TOKEN);
