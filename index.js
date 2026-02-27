@@ -21,7 +21,7 @@ require('dotenv').config();
 
 const TOKEN = process.env.TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
-const SUBMIT_CHANNEL_ID = process.env.SUBMIT_CHANNEL_ID;
+const SUBMIT_CHANNEL_ID = '1475878693724491828'; // 📝┃roles-request
 const STAFF_ROLE_NAME = process.env.STAFF_ROLE_NAME;
 const LOG_CHANNEL_NAME = "🤖-dmbot-logs";
 
@@ -126,7 +126,7 @@ client.on('messageCreate', async (message) => {
   const embed = new EmbedBuilder()
     .setTitle(`📥 בקשה חדשה – ${formatType}`)
     .addFields(
-      { name: "👤 משתמש", value: `<@${message.author.id}>` },
+      { name: "👤 משתמש", value: `<@${message.author.id}>` }, // כאן זה מתייג בצוות
       { name: "📝 תוכן הבקשה", value: message.content }
     )
     .setColor(0x3498db)
@@ -158,7 +158,6 @@ client.on('interactionCreate', async (interaction) => {
 
   const member = interaction.member;
 
-  // רק מי שיש לו רול STAFF
   if (!member || !member.roles.cache.some(r => r.name.toLowerCase() === STAFF_ROLE_NAME.toLowerCase())) {
     return interaction.reply({ content: "❌ אין לך הרשאה.", ephemeral: true });
   }
@@ -167,9 +166,8 @@ client.on('interactionCreate', async (interaction) => {
   const user = await client.users.fetch(userId);
 
   if (action === "approve") {
-    // הוספת רול אוטומטי לפי סוג הפורמט
     const guildMember = await interaction.guild.members.fetch(userId);
-    const roleName = activeFormats.get(userId) || "Crime Family"; // ברירת מחדל אם לא זמין
+    const roleName = activeFormats.get(userId) || "Crime Family"; // ברירת מחדל
     const role = interaction.guild.roles.cache.find(r => r.name === roleName);
     if (role) await guildMember.roles.add(role);
 
