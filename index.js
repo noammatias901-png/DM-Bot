@@ -49,7 +49,6 @@ const FORMATS = {
 async function sendLog(member, roleName, status) {
   try {
     const guild = await client.guilds.fetch(GUILD_ID);
-    await guild.channels.fetch();
     const logChannel = guild.channels.cache.find(c => c.name === LOG_CHANNEL_NAME);
     if (!logChannel) return;
 
@@ -64,7 +63,6 @@ async function sendLog(member, roleName, status) {
       .setTimestamp();
 
     await logChannel.send({ embeds: [embed] });
-
   } catch (err) {
     console.error("❌ שגיאה בשליחת לוג:", err);
   }
@@ -126,7 +124,7 @@ client.on('messageCreate', async (message) => {
   const embed = new EmbedBuilder()
     .setTitle(`📥 בקשה חדשה – ${formatType}`)
     .addFields(
-      { name: "👤 משתמש", value: `<@${message.author.id}>` }, // כאן זה מתייג בצוות
+      { name: "👤 משתמש", value: `<@${message.author.id}>` },
       { name: "📝 תוכן הבקשה", value: message.content }
     )
     .setColor(0x3498db)
@@ -147,7 +145,6 @@ client.on('messageCreate', async (message) => {
 
   await message.author.send("📨 הבקשה נשלחה לצוות לבדיקה.");
 
-  // ניקוי זיכרון למניעת שליחה כפולה בעתיד
   activeFormats.delete(message.author.id);
   usersWithActiveFormat.delete(message.author.id);
 });
@@ -157,41 +154,43 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
 
   const member = interaction.member;
-
   if (!member || !member.roles.cache.some(r => r.name.toLowerCase() === STAFF_ROLE_NAME.toLowerCase())) {
     return interaction.reply({ content: "❌ אין לך הרשאה.", ephemeral: true });
   }
 
   const [action, userId] = interaction.customId.split("_");
   const user = await client.users.fetch(userId);
+  const guildMember = await interaction.guild.members.fetch(userId);
 
   if (action === "approve") {
-    const guildMember = await interaction.guild.members.fetch(userId);
-    const roleName = activeFormats.get(userId) || "Crime Family"; // ברירת מחדל
-    const role = interaction.guild.roles.cache.find(r => r.name === roleName);
+    // מוסיף רול אם קיים
+    const roleName = activeFormats.get(userId) || "crime family";
+    const role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === roleName.toLowerCase());
     if (role) await guildMember.roles.add(role);
 
-    await user.send(
-      "✅ הבקשה שלך אושרה בהצלחה!\nהצוות מיד ימלא לך את הרולים המותאמים."
-    );
+    await user.send("✅ הבקשה שלך אושרה בהצלחה!\nהצוות מיד ימלא לך את הרולים המותאמים.");
 
-    const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+    const newEmbed = new EmbedBuilder()
+      .setTitle("📥 בקשה אושרה!")
+      .setDescription(`הבקשה של <@${userId}> אושרה בהצלחה.`)
+      .addFields({ name: "👮 אושר על ידי", value: interaction.user.tag })
       .setColor(0x00ff00)
-      .addFields({ name: "👮 אושר על ידי", value: interaction.user.tag });
+      .setTimestamp();
 
-    await interaction.update({ embeds: [updatedEmbed], components: [] });
+    await interaction.update({ embeds: [newEmbed], components: [] });
   }
 
   if (action === "deny") {
-    await user.send(
-      "❌ הבקשה שלך נדחתה.\nבמידת הצורך ניתן להגיש בקשה חדשה."
-    );
+    await user.send("❌ הבקשה שלך נדחתה.\nבמידת הצורך ניתן להגיש בקשה חדשה.");
 
-    const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+    const newEmbed = new EmbedBuilder()
+      .setTitle("📥 בקשה נדחתה")
+      .setDescription(`הבקשה של <@${userId}> נדחתה.`)
+      .addFields({ name: "👮 נדחה על ידי", value: interaction.user.tag })
       .setColor(0xff0000)
-      .addFields({ name: "👮 נדחה על ידי", value: interaction.user.tag });
+      .setTimestamp();
 
-    await interaction.update({ embeds: [updatedEmbed], components: [] });
+    await interaction.update({ embeds: [newEmbed], components: [] });
   }
 });
 
