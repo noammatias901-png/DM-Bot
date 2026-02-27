@@ -125,7 +125,7 @@ client.on('messageCreate', async (message) => {
   const embed = new EmbedBuilder()
     .setTitle(`📥 בקשה חדשה – ${formatType}`)
     .addFields(
-      { name: "👤 משתמש", value: message.author.tag },
+      { name: "👤 משתמש", value: `<@${message.author.id}>` },
       { name: "📝 תוכן הבקשה", value: message.content }
     )
     .setColor(0x3498db)
