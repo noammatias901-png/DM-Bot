@@ -153,8 +153,11 @@ client.on('messageCreate', async (message) => {
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
 
+  // רק ערוץ Guild
+  if (!interaction.guild) return interaction.reply({ content: "❌ כפתור לא תקין.", ephemeral: true });
+
   const member = interaction.member;
-  if (!member || !member.roles.cache.some(r => r.name.toLowerCase() === STAFF_ROLE_NAME.toLowerCase())) {
+  if (!member.roles.cache.some(r => r.name.toLowerCase() === STAFF_ROLE_NAME.toLowerCase())) {
     return interaction.reply({ content: "❌ אין לך הרשאה.", ephemeral: true });
   }
 
@@ -162,19 +165,18 @@ client.on('interactionCreate', async (interaction) => {
   const user = await client.users.fetch(userId);
   const guildMember = await interaction.guild.members.fetch(userId);
 
-  // ✅ תיקון Interaction Failed
-  await interaction.deferUpdate();
+  await interaction.deferUpdate(); // מונע “This interaction failed”
 
   if (action === "approve") {
     const roleName = activeFormats.get(userId) || "crime family";
     const role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === roleName.toLowerCase());
     if (role) await guildMember.roles.add(role);
 
-    await user.send("✅ הבקשה שלך אושרה בהצלחה!\nהצוות מיד ימלא לך את הרולים המותאמים.");
+    await user.send("✅ הבקשה אושרה בהצלחה! הצוות ימלא לך את הרולים.");
 
     const newEmbed = new EmbedBuilder()
       .setTitle("📥 בקשה אושרה!")
-      .setDescription(`הבקשה של <@${userId}> אושרה בהצלחה.`)
+      .setDescription(`הבקשה של <@${userId}> אושרה.`)
       .addFields({ name: "👮 אושר על ידי", value: interaction.user.tag })
       .setColor(0x00ff00)
       .setTimestamp();
@@ -183,7 +185,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   if (action === "deny") {
-    await user.send("❌ הבקשה שלך נדחתה.\nבמידת הצורך ניתן להגיש בקשה חדשה.");
+    await user.send("❌ הבקשה נדחתה.");
 
     const newEmbed = new EmbedBuilder()
       .setTitle("📥 בקשה נדחתה")
