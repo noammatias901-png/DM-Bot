@@ -157,7 +157,9 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
 
   const member = interaction.member;
-  if (!member.roles.cache.some(r => r.name === STAFF_ROLE_NAME)) {
+
+  // בטחון: member חייב להיות GuildMember
+  if (!member || !member.roles.cache.some(r => r.name.toLowerCase() === STAFF_ROLE_NAME.toLowerCase())) {
     return interaction.reply({ content: "❌ אין לך הרשאה.", ephemeral: true });
   }
 
