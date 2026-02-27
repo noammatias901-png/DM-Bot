@@ -1,4 +1,3 @@
-// ===== Express (לשמור את Render חי) =====
 const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -6,29 +5,33 @@ const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('DM Bot is running!'));
 app.listen(PORT, () => console.log(`🌐 Server listening on port ${PORT}`));
 
-// ===== Discord =====
-const { Client, GatewayIntentBits, Partials } = require('discord.js');
+const { 
+  Client, 
+  GatewayIntentBits, 
+  Partials, 
+  EmbedBuilder 
+} = require('discord.js');
+
 require('dotenv').config();
 
 const TOKEN = process.env.TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
 const LOG_CHANNEL_NAME = "🤖-dmbot-logs";
+const SUBMIT_CHANNEL_ID = process.env.SUBMIT_CHANNEL_ID; // 1475878693724491828
 
-if (!TOKEN || !GUILD_ID) {
-  console.error("❌ חסר TOKEN או GUILD_ID ב-ENV");
-  process.exit(1);
-}
+const activeFormats = new Map(); // זוכר מי קיבל איזה פורמט
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.MessageContent
   ],
-  partials: [Partials.GuildMember]
+  partials: [Partials.Channel]
 });
 
-// ===== פורמטים =====
 const FORMATS = {
   "crime family": `💌 פורמט בקשת רול משפחה:
 שם בדיסקורד:
@@ -45,55 +48,48 @@ const FORMATS = {
 שם של הבוחן:`
 };
 
-// ===== פונקציית לוג =====
-async function sendLog(messageText) {
-  try {
-    const guild = await client.guilds.fetch(GUILD_ID);
-    await guild.channels.fetch();
+async function sendLog(member, roleName, status) {
+  const guild = await client.guilds.fetch(GUILD_ID);
+  await guild.channels.fetch();
 
-    const logChannel = guild.channels.cache.find(
-      c => c.name === LOG_CHANNEL_NAME
-    );
+  const logChannel = guild.channels.cache.find(
+    c => c.name === LOG_CHANNEL_NAME
+  );
 
-    if (!logChannel) {
-      console.log("❌ חדר לוגים לא נמצא");
-      return;
-    }
+  if (!logChannel) return;
 
-    await logChannel.send(messageText);
-  } catch (err) {
-    console.error("❌ שגיאה בשליחת לוג:", err);
-  }
+  const embed = new EmbedBuilder()
+    .setTitle("📩 DM BOT LOG")
+    .addFields(
+      { name: "👤 משתמש", value: member.user.tag, inline: false },
+      { name: "🎭 רול שהתקבל", value: roleName, inline: false },
+      { name: "📨 סטטוס DM", value: status, inline: false }
+    )
+    .setColor(status === "נשלח פורמט" ? 0x00ff00 : 0xff0000)
+    .setTimestamp();
+
+  await logChannel.send({ embeds: [embed] });
 }
 
-// ===== שליחת DM =====
 async function sendDMFormat(member, roleNameRaw) {
-
   const roleName = roleNameRaw.toLowerCase();
   const format = FORMATS[roleName];
 
   if (!format) return;
 
   try {
-    await member.send({ content: format });
-
-    await sendLog(
-      `✅ DM נשלח ל ${member.user.tag}\nרול: ${roleNameRaw}`
-    );
-
-  } catch (err) {
-    await sendLog(
-      `❌ נכשל DM ל ${member.user.tag}\nרול: ${roleNameRaw}\nסיבה: DM חסום`
-    );
+    await member.send(format);
+    activeFormats.set(member.id, roleName); // שומר איזה פורמט הוא קיבל
+    await sendLog(member, roleNameRaw, "נשלח פורמט");
+  } catch {
+    await sendLog(member, roleNameRaw, "נכשל - DM חסום");
   }
 }
 
-// ===== READY =====
 client.once('ready', () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
 });
 
-// ===== האזנה להוספת רול =====
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
 
   const addedRoles = newMember.roles.cache.filter(role =>
@@ -103,24 +99,40 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
   if (!addedRoles.size) return;
 
   for (const role of addedRoles.values()) {
-    await sendLog(
-      `🎭 נוסף רול למשתמש ${newMember.user.tag}\nרול: ${role.name}`
-    );
-
     await sendDMFormat(newMember, role.name);
   }
 });
 
-// ===== טיפול בקריסות =====
-process.on('unhandledRejection', error => {
-  console.error('Unhandled promise rejection:', error);
+// ===== קבלת מילוי פורמט ב-DM =====
+client.on('messageCreate', async (message) => {
+
+  if (message.author.bot) return;
+  if (message.guild) return; // רק DM
+
+  const formatType = activeFormats.get(message.author.id);
+  if (!formatType) return;
+
+  const guild = await client.guilds.fetch(GUILD_ID);
+  const submitChannel = await guild.channels.fetch(SUBMIT_CHANNEL_ID);
+
+  const embed = new EmbedBuilder()
+    .setTitle("📥 בקשה חדשה")
+    .addFields(
+      { name: "👤 משתמש", value: message.author.tag },
+      { name: "📂 סוג בקשה", value: formatType },
+      { name: "📝 תוכן הבקשה", value: message.content }
+    )
+    .setColor(0x3498db)
+    .setTimestamp();
+
+  await submitChannel.send({ embeds: [embed] });
+
+  await message.author.send("✅ הבקשה נשלחה לצוות בהצלחה.");
+
+  activeFormats.delete(message.author.id); // מנקה זיכרון
 });
 
-process.on('uncaughtException', error => {
-  console.error('Uncaught exception:', error);
-});
+process.on('unhandledRejection', console.error);
+process.on('uncaughtException', console.error);
 
-// ===== Login =====
-client.login(TOKEN)
-  .then(() => console.log('✅ Bot connected'))
-  .catch(console.error);
+client.login(TOKEN);
