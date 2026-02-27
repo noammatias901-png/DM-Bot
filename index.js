@@ -25,8 +25,8 @@ const SUBMIT_CHANNEL_ID = '1475878693724491828'; // 📝┃roles-request
 const STAFF_ROLE_NAME = process.env.STAFF_ROLE_NAME;
 const LOG_CHANNEL_NAME = "🤖-dmbot-logs";
 
-const activeFormats = new Map();          // מי במצב מילוי פורמט
-const usersWithActiveFormat = new Set();  // מונע שליחה כפולה
+const activeFormats = new Map();
+const usersWithActiveFormat = new Set();
 
 const client = new Client({
   intents: [
@@ -68,13 +68,13 @@ async function sendLog(member, roleName, status) {
   }
 }
 
-// ===== שליחת פורמט ל-DM עם EMBED =====
+// ===== שליחת פורמט ל-DM =====
 async function sendDMFormat(member, roleNameRaw) {
   const roleName = roleNameRaw.toLowerCase();
   const format = FORMATS[roleName];
   if (!format) return;
 
-  if (usersWithActiveFormat.has(member.id)) return; // מונע שליחה כפולה
+  if (usersWithActiveFormat.has(member.id)) return;
 
   try {
     const embed = new EmbedBuilder()
@@ -113,7 +113,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
 // ===== מילוי פורמט ב-DM =====
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
-  if (message.guild) return; // רק DM
+  if (message.guild) return;
 
   const formatType = activeFormats.get(message.author.id);
   if (!formatType) return;
@@ -153,7 +153,6 @@ client.on('messageCreate', async (message) => {
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
 
-  // רק ערוץ Guild
   if (!interaction.guild) return interaction.reply({ content: "❌ כפתור לא תקין.", ephemeral: true });
 
   const member = interaction.member;
@@ -165,14 +164,15 @@ client.on('interactionCreate', async (interaction) => {
   const user = await client.users.fetch(userId);
   const guildMember = await interaction.guild.members.fetch(userId);
 
-  await interaction.deferUpdate(); // מונע “This interaction failed”
+  // ✅ deferUpdate מיד כדי למנוע This interaction failed
+  await interaction.deferUpdate();
 
   if (action === "approve") {
     const roleName = activeFormats.get(userId) || "crime family";
     const role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === roleName.toLowerCase());
     if (role) await guildMember.roles.add(role);
 
-    await user.send("✅ הבקשה אושרה בהצלחה! הצוות ימלא לך את הרולים.");
+    await user.send("✅ הבקשה אושרה! הצוות ימלא לך את הרולים.");
 
     const newEmbed = new EmbedBuilder()
       .setTitle("📥 בקשה אושרה!")
