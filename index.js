@@ -39,19 +39,8 @@ const client = new Client({
 
 // ===== פורמטים =====
 const FORMATS = {
-  "crime family": `💌 פורמט בקשת רול משפחה:
-שם בדיסקורד:
-שם בעיר:
-איזו משפחה:
-תפקיד במשפחה:
-הוכחה:
-שם של מי שהכניס אותך:`,
-
-  "solo crime": `💌 פורמט בקשת רול סולו קריים:
-שם בדיסקורד:
-שם בעיר:
-הוכחה:
-שם של הבוחן:`
+  "crime family": `שם בדיסקורד:\nשם בעיר:\nאיזו משפחה:\nתפקיד במשפחה:\nהוכחה:\nשם של מי שהכניס אותך:`,
+  "solo crime": `שם בדיסקורד:\nשם בעיר:\nהוכחה:\nשם של הבוחן:`
 };
 
 // ===== פונקציית לוג =====
@@ -69,7 +58,7 @@ async function sendLog(member, roleName, status) {
         { name: "🎭 רול שהתקבל", value: roleName, inline: false },
         { name: "📨 סטטוס DM", value: status, inline: false }
       )
-      .setColor(status === "נשלח פורמט" ? 0x00ff00 : 0xff0000)
+      .setColor(status === "נשלח פורמט Embed" ? 0x00ff00 : 0xff0000)
       .setTimestamp();
 
     await logChannel.send({ embeds: [embed] });
@@ -79,7 +68,7 @@ async function sendLog(member, roleName, status) {
   }
 }
 
-// ===== שליחת פורמט =====
+// ===== שליחת פורמט ל-DM עם EMBED =====
 async function sendDMFormat(member, roleNameRaw) {
   const roleName = roleNameRaw.toLowerCase();
   const format = FORMATS[roleName];
@@ -89,10 +78,19 @@ async function sendDMFormat(member, roleNameRaw) {
   if (usersWithActiveFormat.has(member.id)) return;
 
   try {
-    await member.send(format);
+    const embed = new EmbedBuilder()
+      .setTitle(`💌 פורמט בקשה – ${roleNameRaw}`)
+      .setDescription(format)
+      .setColor(0x3498db)
+      .setTimestamp();
+
+    await member.send({ embeds: [embed] });
+
     usersWithActiveFormat.add(member.id);
     activeFormats.set(member.id, roleName);
-    await sendLog(member, roleNameRaw, "נשלח פורמט");
+
+    await sendLog(member, roleNameRaw, "נשלח פורמט Embed");
+
   } catch (err) {
     await sendLog(member, roleNameRaw, "נכשל - DM חסום");
   }
@@ -103,7 +101,7 @@ client.once('ready', () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
 });
 
-// ===== הוספת רול =====
+// ===== הוספת רול למשתמש =====
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
   const addedRoles = newMember.roles.cache.filter(role => !oldMember.roles.cache.has(role.id));
   if (!addedRoles.size) return;
@@ -149,7 +147,7 @@ client.on('messageCreate', async (message) => {
 
   await message.author.send("📨 הבקשה נשלחה לצוות לבדיקה.");
 
-  // מנקה זיכרון למנוע שליחה כפולה בפעם הבאה
+  // ניקוי זיכרון למניעת שליחה כפולה בעתיד
   activeFormats.delete(message.author.id);
   usersWithActiveFormat.delete(message.author.id);
 });
