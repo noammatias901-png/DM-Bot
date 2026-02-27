@@ -162,8 +162,10 @@ client.on('interactionCreate', async (interaction) => {
   const user = await client.users.fetch(userId);
   const guildMember = await interaction.guild.members.fetch(userId);
 
+  // ✅ תיקון Interaction Failed
+  await interaction.deferUpdate();
+
   if (action === "approve") {
-    // מוסיף רול אם קיים
     const roleName = activeFormats.get(userId) || "crime family";
     const role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === roleName.toLowerCase());
     if (role) await guildMember.roles.add(role);
@@ -177,7 +179,7 @@ client.on('interactionCreate', async (interaction) => {
       .setColor(0x00ff00)
       .setTimestamp();
 
-    await interaction.update({ embeds: [newEmbed], components: [] });
+    await interaction.message.edit({ embeds: [newEmbed], components: [] });
   }
 
   if (action === "deny") {
@@ -190,7 +192,7 @@ client.on('interactionCreate', async (interaction) => {
       .setColor(0xff0000)
       .setTimestamp();
 
-    await interaction.update({ embeds: [newEmbed], components: [] });
+    await interaction.message.edit({ embeds: [newEmbed], components: [] });
   }
 });
 
