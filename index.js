@@ -147,7 +147,11 @@ client.on('interactionCreate', async (interaction) => {
 
   try {
     if (!interaction.guild) {
-      return interaction.reply({ content: "❌ לא תקין.", ephemeral: true });
+      return await interaction.reply({ content: "❌ לא תקין.", ephemeral: true });
+    }
+
+    if (!STAFF_ROLE_NAME) {
+      return await interaction.reply({ content: "❌ STAFF_ROLE_NAME לא מוגדר ב-ENV", ephemeral: true });
     }
 
     const staffRole = interaction.guild.roles.cache.find(
@@ -155,28 +159,41 @@ client.on('interactionCreate', async (interaction) => {
     );
 
     if (!staffRole || !interaction.member.roles.cache.has(staffRole.id)) {
-      return interaction.reply({ content: "❌ אין הרשאה.", ephemeral: true });
+      return await interaction.reply({ content: "❌ אין הרשאה.", ephemeral: true });
     }
 
     if (!activeRequests.has(interaction.message.id)) {
-      return interaction.reply({ content: "⚠️ הבקשה כבר טופלה.", ephemeral: true });
+      return await interaction.reply({ content: "⚠️ הבקשה כבר טופלה.", ephemeral: true });
     }
 
-    await interaction.deferUpdate(); // מונע This interaction failed
+    await interaction.deferUpdate();
 
-    const [action, userId, roleName] = interaction.customId.split("_");
+    const parts = interaction.customId.split("_");
+    const action = parts[0];
+    const userId = parts[1];
+    const roleName = parts.slice(2).join("_");
 
     const user = await client.users.fetch(userId).catch(() => null);
     const guildMember = await interaction.guild.members.fetch(userId).catch(() => null);
 
-    if (!user || !guildMember) return;
+    if (!user || !guildMember) {
+      console.log("User not found");
+      return;
+    }
 
     if (action === "approve") {
       const role = interaction.guild.roles.cache.find(
         r => r.name.toLowerCase() === roleName.toLowerCase()
       );
 
-      if (role) await guildMember.roles.add(role).catch(() => {});
+      if (!role) {
+        console.log("Role not found:", roleName);
+      } else {
+        await guildMember.roles.add(role).catch(err => {
+          console.log("Role add failed:", err);
+        });
+      }
+
       await user.send("✅ הבקשה שלך אושרה!").catch(() => {});
     }
 
@@ -184,20 +201,22 @@ client.on('interactionCreate', async (interaction) => {
       await user.send("❌ הבקשה שלך נדחתה.").catch(() => {});
     }
 
-    const resultEmbed = new EmbedBuilder()
-      .setTitle(action === "approve" ? "📥 בקשה אושרה" : "📥 בקשה נדחתה")
-      .setDescription(`הבקשה של <@${userId}> ${action === "approve" ? "אושרה" : "נדחתה"}.`)
-      .addFields({ name: "👮 טופל על ידי", value: interaction.user.tag })
-      .setColor(action === "approve" ? 0x00ff00 : 0xff0000)
-      .setTimestamp();
-
-    await interaction.message.edit({ embeds: [resultEmbed], components: [] });
+    await interaction.message.edit({
+      components: [],
+      embeds: [
+        new EmbedBuilder()
+          .setTitle(action === "approve" ? "📥 בקשה אושרה" : "📥 בקשה נדחתה")
+          .setDescription(`הבקשה של <@${userId}> ${action === "approve" ? "אושרה" : "נדחתה"}.`)
+          .addFields({ name: "👮 טופל על ידי", value: interaction.user.tag })
+          .setColor(action === "approve" ? 0x00ff00 : 0xff0000)
+          .setTimestamp()
+      ]
+    });
 
     activeRequests.delete(interaction.message.id);
 
   } catch (err) {
-    console.error(err);
-
+    console.error("🔥 REAL ERROR:", err);
     if (!interaction.replied && !interaction.deferred) {
       await interaction.reply({ content: "❌ שגיאה בטיפול.", ephemeral: true });
     }
