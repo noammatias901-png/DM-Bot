@@ -145,8 +145,11 @@ client.on('interactionCreate', async (interaction) => {
   try {
     if (!interaction.guild) return await interaction.reply({ content: "❌ לא תקין.", ephemeral: true });
 
+    // Force fetch כדי לראות את כל הרולים
+    const guildMember = await interaction.guild.members.fetch(interaction.user.id);
     const staffRole = interaction.guild.roles.cache.get(STAFF_ROLE_ID);
-    if (!staffRole || !interaction.member.roles.cache.has(staffRole.id)) {
+
+    if (!staffRole || !guildMember.roles.cache.has(staffRole.id)) {
       return await interaction.reply({ content: "❌ אין הרשאה.", ephemeral: true });
     }
 
@@ -162,12 +165,12 @@ client.on('interactionCreate', async (interaction) => {
     const roleName = parts.slice(2).join("_"); // אם יש רווחים
 
     const user = await client.users.fetch(userId).catch(() => null);
-    const guildMember = await interaction.guild.members.fetch(userId).catch(() => null);
-    if (!user || !guildMember) return;
+    const targetMember = await interaction.guild.members.fetch(userId).catch(() => null);
+    if (!user || !targetMember) return;
 
     if (action === "approve") {
       const role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === roleName.toLowerCase());
-      if (role) await guildMember.roles.add(role).catch(() => {});
+      if (role) await targetMember.roles.add(role).catch(() => {});
       await user.send("✅ הבקשה שלך אושרה!").catch(() => {});
     }
 
