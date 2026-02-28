@@ -154,9 +154,11 @@ client.on('interactionCreate', async (interaction) => {
       return await interaction.reply({ content: "❌ STAFF_ROLE_NAME לא מוגדר ב-ENV", ephemeral: true });
     }
 
-    const staffRole = interaction.guild.roles.cache.find(
-      r => r.name.toLowerCase() === STAFF_ROLE_NAME.toLowerCase()
-    );
+    const staffRole = interaction.guild.roles.cache.get(STAFF_ROLE_NAME);
+
+if (!staffRole || !interaction.member.roles.cache.has(staffRole.id)) {
+  return await interaction.reply({ content: "❌ אין הרשאה.", ephemeral: true });
+}
 
     if (!staffRole || !interaction.member.roles.cache.has(staffRole.id)) {
       return await interaction.reply({ content: "❌ אין הרשאה.", ephemeral: true });
