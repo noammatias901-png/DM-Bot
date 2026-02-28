@@ -146,16 +146,19 @@ client.on('interactionCreate', async (interaction) => {
     if (!interaction.guild) return await interaction.reply({ content: "❌ לא תקין.", ephemeral: true });
 
     // Force fetch כדי לראות את כל הרולים
-    const guildMember = await interaction.guild.members.fetch(interaction.user.id);
-    const staffRole = interaction.guild.roles.cache.get(STAFF_ROLE_ID);
+   const guild = client.guilds.cache.get(process.env.GUILD_ID);
 
-    if (!staffRole || !guildMember.roles.cache.has(staffRole.id)) {
-      return await interaction.reply({ content: "❌ אין הרשאה.", ephemeral: true });
-    }
+if (!guild) {
+    return interaction.reply({ content: "❌ השרת לא נמצא.", ephemeral: true });
+}
 
-    if (!activeRequests.has(interaction.message.id)) {
-      return await interaction.reply({ content: "⚠️ הבקשה כבר טופלה.", ephemeral: true });
-    }
+const member = await guild.members.fetch(interaction.user.id).catch(() => null);
+
+if (!member || !member.roles.cache.has(process.env.STAFF_ROLE_ID)) {
+    return interaction.reply({ content: "❌ אין הרשאה.", ephemeral: true });
+
+  )
+
 
     await interaction.deferUpdate();
 
