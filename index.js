@@ -21,13 +21,11 @@ require('dotenv').config();
 
 const TOKEN = process.env.TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
-const STAFF_ROLE_NAME = process.env.STAFF_ROLE_NAME;
-
+const STAFF_ROLE_ID = process.env.STAFF_ROLE_ID; // <-- כאן שים את ID של הסטאף
 const SUBMIT_CHANNEL_ID = '1475878693724491828';
 const LOG_CHANNEL_NAME = "🤖-dmbot-logs";
 
 const REQUEST_TIMEOUT = 10 * 60 * 1000; // 10 דקות
-
 const activeRequests = new Map();
 
 const client = new Client({
@@ -44,7 +42,6 @@ const client = new Client({
 // ===== פורמטים =====
 const FORMATS = {
   "crime family": `שם בדיסקורד:\nשם בעיר:\nאיזו משפחה:\nתפקיד במשפחה:\nהוכחה:\nשם של מי שהכניס אותך:`,
-
   "solo crime": `שם בדיסקורד:\nשם בעיר:\nהוכחה:\nשם של הבוחן:`
 };
 
@@ -146,20 +143,9 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
 
   try {
-    if (!interaction.guild) {
-      return await interaction.reply({ content: "❌ לא תקין.", ephemeral: true });
-    }
+    if (!interaction.guild) return await interaction.reply({ content: "❌ לא תקין.", ephemeral: true });
 
-    if (!STAFF_ROLE_NAME) {
-      return await interaction.reply({ content: "❌ STAFF_ROLE_NAME לא מוגדר ב-ENV", ephemeral: true });
-    }
-
-    const staffRole = interaction.guild.roles.cache.get(STAFF_ROLE_NAME);
-
-if (!staffRole || !interaction.member.roles.cache.has(staffRole.id)) {
-  return await interaction.reply({ content: "❌ אין הרשאה.", ephemeral: true });
-}
-
+    const staffRole = interaction.guild.roles.cache.get(STAFF_ROLE_ID);
     if (!staffRole || !interaction.member.roles.cache.has(staffRole.id)) {
       return await interaction.reply({ content: "❌ אין הרשאה.", ephemeral: true });
     }
@@ -173,29 +159,15 @@ if (!staffRole || !interaction.member.roles.cache.has(staffRole.id)) {
     const parts = interaction.customId.split("_");
     const action = parts[0];
     const userId = parts[1];
-    const roleName = parts.slice(2).join("_");
+    const roleName = parts.slice(2).join("_"); // אם יש רווחים
 
     const user = await client.users.fetch(userId).catch(() => null);
     const guildMember = await interaction.guild.members.fetch(userId).catch(() => null);
-
-    if (!user || !guildMember) {
-      console.log("User not found");
-      return;
-    }
+    if (!user || !guildMember) return;
 
     if (action === "approve") {
-      const role = interaction.guild.roles.cache.find(
-        r => r.name.toLowerCase() === roleName.toLowerCase()
-      );
-
-      if (!role) {
-        console.log("Role not found:", roleName);
-      } else {
-        await guildMember.roles.add(role).catch(err => {
-          console.log("Role add failed:", err);
-        });
-      }
-
+      const role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === roleName.toLowerCase());
+      if (role) await guildMember.roles.add(role).catch(() => {});
       await user.send("✅ הבקשה שלך אושרה!").catch(() => {});
     }
 
@@ -203,17 +175,14 @@ if (!staffRole || !interaction.member.roles.cache.has(staffRole.id)) {
       await user.send("❌ הבקשה שלך נדחתה.").catch(() => {});
     }
 
-    await interaction.message.edit({
-      components: [],
-      embeds: [
-        new EmbedBuilder()
-          .setTitle(action === "approve" ? "📥 בקשה אושרה" : "📥 בקשה נדחתה")
-          .setDescription(`הבקשה של <@${userId}> ${action === "approve" ? "אושרה" : "נדחתה"}.`)
-          .addFields({ name: "👮 טופל על ידי", value: interaction.user.tag })
-          .setColor(action === "approve" ? 0x00ff00 : 0xff0000)
-          .setTimestamp()
-      ]
-    });
+    const resultEmbed = new EmbedBuilder()
+      .setTitle(action === "approve" ? "📥 בקשה אושרה" : "📥 בקשה נדחתה")
+      .setDescription(`הבקשה של <@${userId}> ${action === "approve" ? "אושרה" : "נדחתה"}.`)
+      .addFields({ name: "👮 טופל על ידי", value: interaction.user.tag })
+      .setColor(action === "approve" ? 0x00ff00 : 0xff0000)
+      .setTimestamp();
+
+    await interaction.message.edit({ embeds: [resultEmbed], components: [] });
 
     activeRequests.delete(interaction.message.id);
 
