@@ -7,7 +7,7 @@ app.get('/', (req, res) => res.send('DM Bot Running'));
 app.listen(PORT, () => console.log(`🌐 Server listening on port ${PORT}`));
 
 // ===== Discord =====
-const { 
+const {
   Client,
   GatewayIntentBits,
   Partials,
@@ -21,12 +21,14 @@ require('dotenv').config();
 
 const TOKEN = process.env.TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
-const SUBMIT_CHANNEL_ID = '1475878693724491828'; // 📝┃roles-request
 const STAFF_ROLE_NAME = process.env.STAFF_ROLE_NAME;
+
+const SUBMIT_CHANNEL_ID = '1475878693724491828';
 const LOG_CHANNEL_NAME = "🤖-dmbot-logs";
 
-const activeFormats = new Map();
-const usersWithActiveFormat = new Set();
+const REQUEST_TIMEOUT = 10 * 60 * 1000; // 10 דקות
+
+const activeRequests = new Map();
 
 const client = new Client({
   intents: [
@@ -42,39 +44,25 @@ const client = new Client({
 // ===== פורמטים =====
 const FORMATS = {
   "crime family": `שם בדיסקורד:\nשם בעיר:\nאיזו משפחה:\nתפקיד במשפחה:\nהוכחה:\nשם של מי שהכניס אותך:`,
+
   "solo crime": `שם בדיסקורד:\nשם בעיר:\nהוכחה:\nשם של הבוחן:`
 };
 
-// ===== פונקציית לוג =====
-async function sendLog(member, roleName, status) {
+// ===== לוג =====
+async function sendLog(text) {
   try {
     const guild = await client.guilds.fetch(GUILD_ID);
     const logChannel = guild.channels.cache.find(c => c.name === LOG_CHANNEL_NAME);
     if (!logChannel) return;
-
-    const embed = new EmbedBuilder()
-      .setTitle("📩 DM BOT LOG")
-      .addFields(
-        { name: "👤 משתמש", value: `<@${member.id}>`, inline: false },
-        { name: "🎭 רול שהתקבל", value: roleName, inline: false },
-        { name: "📨 סטטוס DM", value: status, inline: false }
-      )
-      .setColor(status.includes("נשלח") ? 0x00ff00 : 0xff0000)
-      .setTimestamp();
-
-    await logChannel.send({ embeds: [embed] });
-  } catch (err) {
-    console.error("❌ שגיאה בשליחת לוג:", err);
-  }
+    await logChannel.send(text);
+  } catch {}
 }
 
-// ===== שליחת פורמט ל-DM =====
+// ===== שליחת פורמט ב-DM =====
 async function sendDMFormat(member, roleNameRaw) {
   const roleName = roleNameRaw.toLowerCase();
   const format = FORMATS[roleName];
   if (!format) return;
-
-  if (usersWithActiveFormat.has(member.id)) return;
 
   try {
     const embed = new EmbedBuilder()
@@ -84,14 +72,9 @@ async function sendDMFormat(member, roleNameRaw) {
       .setTimestamp();
 
     await member.send({ embeds: [embed] });
-
-    usersWithActiveFormat.add(member.id);
-    activeFormats.set(member.id, roleName);
-
-    await sendLog(member, roleNameRaw, "נשלח פורמט Embed");
-
-  } catch (err) {
-    await sendLog(member, roleNameRaw, "❌ נכשל - DM חסום");
+    await sendLog(`📤 פורמט נשלח ל ${member.user.tag}`);
+  } catch {
+    await sendLog(`❌ DM חסום אצל ${member.user.tag}`);
   }
 }
 
@@ -100,7 +83,7 @@ client.once('ready', () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
 });
 
-// ===== הוספת רול אוטומטי למשתמש =====
+// ===== זיהוי הוספת רול =====
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
   const addedRoles = newMember.roles.cache.filter(role => !oldMember.roles.cache.has(role.id));
   if (!addedRoles.size) return;
@@ -110,16 +93,19 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
   }
 });
 
-// ===== מילוי פורמט ב-DM =====
+// ===== קבלת טופס ב-DM =====
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
   if (message.guild) return;
 
-  const formatType = activeFormats.get(message.author.id);
-  if (!formatType) return;
-
   const guild = await client.guilds.fetch(GUILD_ID);
   const submitChannel = await guild.channels.fetch(SUBMIT_CHANNEL_ID);
+
+  const formatType = Object.keys(FORMATS).find(f =>
+    message.content.toLowerCase().includes("שם בדיסקורד")
+  );
+
+  if (!formatType) return;
 
   const embed = new EmbedBuilder()
     .setTitle(`📥 בקשה חדשה – ${formatType}`)
@@ -132,73 +118,93 @@ client.on('messageCreate', async (message) => {
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId(`approve_${message.author.id}`)
+      .setCustomId(`approve_${message.author.id}_${formatType}`)
       .setLabel("אשר")
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
-      .setCustomId(`deny_${message.author.id}`)
+      .setCustomId(`deny_${message.author.id}_${formatType}`)
       .setLabel("דחה")
       .setStyle(ButtonStyle.Danger)
   );
 
-  await submitChannel.send({ embeds: [embed], components: [row] });
+  const sentMessage = await submitChannel.send({ embeds: [embed], components: [row] });
 
-  await message.author.send("📨 הבקשה נשלחה לצוות לבדיקה.");
+  activeRequests.set(sentMessage.id, true);
 
-  activeFormats.delete(message.author.id);
-  usersWithActiveFormat.delete(message.author.id);
+  setTimeout(async () => {
+    if (activeRequests.has(sentMessage.id)) {
+      await sentMessage.edit({ components: [] }).catch(() => {});
+      activeRequests.delete(sentMessage.id);
+    }
+  }, REQUEST_TIMEOUT);
+
+  await message.author.send("📨 הבקשה נשלחה לבדיקה.");
 });
 
 // ===== טיפול בכפתורים =====
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
 
-  if (!interaction.guild) return interaction.reply({ content: "❌ כפתור לא תקין.", ephemeral: true });
+  try {
+    if (!interaction.guild) {
+      return interaction.reply({ content: "❌ לא תקין.", ephemeral: true });
+    }
 
-  const member = interaction.member;
-  if (!member.roles.cache.some(r => r.name.toLowerCase() === STAFF_ROLE_NAME.toLowerCase())) {
-    return interaction.reply({ content: "❌ אין לך הרשאה.", ephemeral: true });
-  }
+    const staffRole = interaction.guild.roles.cache.find(
+      r => r.name.toLowerCase() === STAFF_ROLE_NAME.toLowerCase()
+    );
 
-  const [action, userId] = interaction.customId.split("_");
-  const user = await client.users.fetch(userId);
-  const guildMember = await interaction.guild.members.fetch(userId);
+    if (!staffRole || !interaction.member.roles.cache.has(staffRole.id)) {
+      return interaction.reply({ content: "❌ אין הרשאה.", ephemeral: true });
+    }
 
-  // ✅ deferUpdate מיד כדי למנוע This interaction failed
-  await interaction.deferUpdate();
+    if (!activeRequests.has(interaction.message.id)) {
+      return interaction.reply({ content: "⚠️ הבקשה כבר טופלה.", ephemeral: true });
+    }
 
-  if (action === "approve") {
-    const roleName = activeFormats.get(userId) || "crime family";
-    const role = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === roleName.toLowerCase());
-    if (role) await guildMember.roles.add(role);
+    await interaction.deferUpdate(); // מונע This interaction failed
 
-    await user.send("✅ הבקשה אושרה! הצוות ימלא לך את הרולים.");
+    const [action, userId, roleName] = interaction.customId.split("_");
 
-    const newEmbed = new EmbedBuilder()
-      .setTitle("📥 בקשה אושרה!")
-      .setDescription(`הבקשה של <@${userId}> אושרה.`)
-      .addFields({ name: "👮 אושר על ידי", value: interaction.user.tag })
-      .setColor(0x00ff00)
+    const user = await client.users.fetch(userId).catch(() => null);
+    const guildMember = await interaction.guild.members.fetch(userId).catch(() => null);
+
+    if (!user || !guildMember) return;
+
+    if (action === "approve") {
+      const role = interaction.guild.roles.cache.find(
+        r => r.name.toLowerCase() === roleName.toLowerCase()
+      );
+
+      if (role) await guildMember.roles.add(role).catch(() => {});
+      await user.send("✅ הבקשה שלך אושרה!").catch(() => {});
+    }
+
+    if (action === "deny") {
+      await user.send("❌ הבקשה שלך נדחתה.").catch(() => {});
+    }
+
+    const resultEmbed = new EmbedBuilder()
+      .setTitle(action === "approve" ? "📥 בקשה אושרה" : "📥 בקשה נדחתה")
+      .setDescription(`הבקשה של <@${userId}> ${action === "approve" ? "אושרה" : "נדחתה"}.`)
+      .addFields({ name: "👮 טופל על ידי", value: interaction.user.tag })
+      .setColor(action === "approve" ? 0x00ff00 : 0xff0000)
       .setTimestamp();
 
-    await interaction.message.edit({ embeds: [newEmbed], components: [] });
-  }
+    await interaction.message.edit({ embeds: [resultEmbed], components: [] });
 
-  if (action === "deny") {
-    await user.send("❌ הבקשה נדחתה.");
+    activeRequests.delete(interaction.message.id);
 
-    const newEmbed = new EmbedBuilder()
-      .setTitle("📥 בקשה נדחתה")
-      .setDescription(`הבקשה של <@${userId}> נדחתה.`)
-      .addFields({ name: "👮 נדחה על ידי", value: interaction.user.tag })
-      .setColor(0xff0000)
-      .setTimestamp();
+  } catch (err) {
+    console.error(err);
 
-    await interaction.message.edit({ embeds: [newEmbed], components: [] });
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply({ content: "❌ שגיאה בטיפול.", ephemeral: true });
+    }
   }
 });
 
-// ===== טיפול בקריסות =====
+// ===== קריסות =====
 process.on('unhandledRejection', console.error);
 process.on('uncaughtException', console.error);
 
